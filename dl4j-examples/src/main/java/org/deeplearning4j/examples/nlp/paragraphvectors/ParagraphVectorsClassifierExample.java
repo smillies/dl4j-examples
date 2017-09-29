@@ -1,24 +1,27 @@
 package org.deeplearning4j.examples.nlp.paragraphvectors;
 
+import com.google.common.collect.Maps;
 import org.datavec.api.util.ClassPathResource;
-import org.nd4j.linalg.primitives.Pair;
 import org.deeplearning4j.examples.nlp.paragraphvectors.tools.LabelSeeker;
 import org.deeplearning4j.examples.nlp.paragraphvectors.tools.MeansBuilder;
 import org.deeplearning4j.models.embeddings.inmemory.InMemoryLookupTable;
 import org.deeplearning4j.models.paragraphvectors.ParagraphVectors;
 import org.deeplearning4j.models.word2vec.VocabWord;
-import org.deeplearning4j.text.documentiterator.FileLabelAwareIterator;
 import org.deeplearning4j.text.documentiterator.LabelAwareIterator;
-import org.deeplearning4j.text.documentiterator.LabelledDocument;
 import org.deeplearning4j.text.tokenization.tokenizer.preprocessor.CommonPreprocessor;
 import org.deeplearning4j.text.tokenization.tokenizerfactory.DefaultTokenizerFactory;
 import org.deeplearning4j.text.tokenization.tokenizerfactory.TokenizerFactory;
+import org.jfree.util.Log;
 import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.primitives.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * This is basic example for documents classification done with DL4j ParagraphVectors.
@@ -66,7 +69,7 @@ public class ParagraphVectorsClassifierExample {
     }
 
     void makeParagraphVectors()  throws Exception {
-      ClassPathResource resource = new ClassPathResource("train");
+      ClassPathResource resource = new ClassPathResource("testdata/train");
 
       // build a iterator for our dataset
       iterator = new FileLabelAwareIterator.Builder()
@@ -78,10 +81,10 @@ public class ParagraphVectorsClassifierExample {
 
       // ParagraphVectors training configuration
       paragraphVectors = new ParagraphVectors.Builder()
-              .learningRate(0.025)
+              .learningRate(0.02)
               .minLearningRate(0.001)
               .batchSize(1000)
-              .epochs(20)
+              .epochs(15)
               .iterate(iterator)
               .trainWordVectors(true)
               .tokenizerFactory(tokenizerFactory)
@@ -97,7 +100,7 @@ public class ParagraphVectorsClassifierExample {
       which categories our unlabeled document falls into.
       So we'll start loading our unlabeled documents and checking them
      */
-     ClassPathResource unClassifiedResource = new ClassPathResource("test");
+     ClassPathResource unClassifiedResource = new ClassPathResource("testdata/test");
      FileLabelAwareIterator unClassifiedIterator = new FileLabelAwareIterator.Builder()
              .addSourceFolder(unClassifiedResource.getFile())
              .build();
@@ -113,6 +116,9 @@ public class ParagraphVectorsClassifierExample {
      LabelSeeker seeker = new LabelSeeker(iterator.getLabelsSource().getLabels(),
          (InMemoryLookupTable<VocabWord>) paragraphVectors.getLookupTable());
 
+
+     Map<String, Integer> wrongCategorized = Maps.newHashMap();
+
      while (unClassifiedIterator.hasNextDocument()) {
          LabelledDocument document = unClassifiedIterator.nextDocument();
          INDArray documentAsCentroid = meansBuilder.documentAsVector(document);
@@ -124,11 +130,34 @@ public class ParagraphVectorsClassifierExample {
           So, labels on these two documents are used like titles,
           just to visualize our classification done properly
          */
-         log.info("Document '" + document.getLabels() + "' falls into the following categories: ");
+         String label = document.getLabel();
+         log.info("Document '" + label + "-" + document.getDocumentName() + "' falls into the following categories: ");
+         Pair<String, Double> highest = null;
          for (Pair<String, Double> score: scores) {
+             if (highest == null || score.getSecond() > highest.getSecond()) {
+                 highest = score;
+             }
              log.info("        " + score.getFirst() + ": " + score.getSecond());
+         }
+         if (!highest.getFirst().equals(label)) {
+             log.info("Document '" + label + "-" + document.getDocumentName() + "' INCORRECT labled");
+             if (wrongCategorized.containsKey(label)) {
+                 wrongCategorized.put(label, wrongCategorized.get(label) + 1);
+             } else {
+                 wrongCategorized.put(label, 1);
+             }
          }
      }
 
+     int wrongCategorizedSum = 0;
+
+     for (String key : wrongCategorized.keySet()) {
+         log.info("Document INCORRECT labled");
+         Log.info("Label " + key + " is " + wrongCategorized.get(key).toString() + " times wrong categorized.");
+         System.out.println("Label " + key + " is " + wrongCategorized.get(key).toString() + " times wrong categorized.");
+         wrongCategorizedSum += wrongCategorized.get(key);
+     }
+
+     log.info(wrongCategorizedSum + " Documents overall INCORRECT labled");
     }
 }
