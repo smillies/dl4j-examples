@@ -10,7 +10,11 @@ import org.deeplearning4j.iterator.provider.FileLabeledSentenceProvider;
 import org.deeplearning4j.models.embeddings.loader.WordVectorSerializer;
 import org.deeplearning4j.models.embeddings.wordvectors.WordVectors;
 import org.deeplearning4j.nn.api.Layer;
-import org.deeplearning4j.nn.conf.*;
+import org.deeplearning4j.nn.conf.ComputationGraphConfiguration;
+import org.deeplearning4j.nn.conf.ConvolutionMode;
+import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.Updater;
+import org.deeplearning4j.nn.conf.WorkspaceMode;
 import org.deeplearning4j.nn.conf.graph.MergeVertex;
 import org.deeplearning4j.nn.conf.layers.ConvolutionLayer;
 import org.deeplearning4j.nn.conf.layers.GlobalPoolingLayer;
@@ -26,7 +30,11 @@ import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.File;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 /**
  * Convolutional Neural Networks for Sentence Classification - https://arxiv.org/abs/1408.5882
@@ -35,14 +43,15 @@ import java.util.*;
  *
  * @author Alex Black
  */
-public class CnnSentenceClassificationExample {
+public class CnnSentenceClassificationNewsIW917 {
 
     /** Data URL for downloading */
     public static final String DATA_URL = "http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz";
     /** Location to save and extract the training/testing data */
     public static final String DATA_PATH = FilenameUtils.concat(System.getProperty("java.io.tmpdir"), "dl4j_w2vSentiment/");
     /** Location (local file system) for the Google News vectors. Set this manually. */
-    public static final String WORD_VECTORS_PATH = "S:/sml/GoogleNews-vectors-negative300.bin.gz";
+//    public static final String WORD_VECTORS_PATH = "S:/sml/GoogleNews-vectors-negative300.bin.gz";
+    public static final String WORD_VECTORS_PATH = "S:/sml/news_word2vec_model.bin";
 
     public static void main(String[] args) throws Exception {
         if(WORD_VECTORS_PATH.startsWith("/PATH/TO/YOUR/VECTORS/")){
@@ -104,7 +113,7 @@ public class CnnSentenceClassificationExample {
                 .lossFunction(LossFunctions.LossFunction.MCXENT)
                 .activation(Activation.SOFTMAX)
                 .nIn(3*cnnLayerFeatureMaps)
-                .nOut(2)    //2 classes: positive or negative
+                .nOut(4)    //4 classes: worls, sports, business, tech
                 .build(), "globalPool")
             .setOutputs("out")
             .build();
@@ -119,7 +128,8 @@ public class CnnSentenceClassificationExample {
 
         //Load word vectors and get the DataSetIterators for training and testing
         System.out.println("Loading word vectors and creating DataSetIterators");
-        WordVectors wordVectors = WordVectorSerializer.loadStaticModel(new File(WORD_VECTORS_PATH));
+//        WordVectors wordVectors = WordVectorSerializer.loadStaticModel(new File(WORD_VECTORS_PATH));
+        WordVectors wordVectors = WordVectorSerializer.readWord2VecModel(new File(WORD_VECTORS_PATH));
         DataSetIterator trainIter = getDataSetIterator(true, wordVectors, batchSize, truncateReviewsToLength, rng);
         DataSetIterator testIter = getDataSetIterator(false, wordVectors, batchSize, truncateReviewsToLength, rng);
 
@@ -137,14 +147,14 @@ public class CnnSentenceClassificationExample {
 
 
         //After training: load a single sentence and generate a prediction
-        String pathFirstNegativeFile = FilenameUtils.concat(DATA_PATH, "aclImdb/test/neg/0_2.txt");
+        String pathFirstNegativeFile = FilenameUtils.concat(DATA_PATH, "news/test/3/100.txt");
         String contentsFirstNegative = FileUtils.readFileToString(new File(pathFirstNegativeFile));
         INDArray featuresFirstNegative = ((CnnSentenceDataSetIterator)testIter).loadSingleSentence(contentsFirstNegative);
 
         INDArray predictionsFirstNegative = net.outputSingle(featuresFirstNegative);
         List<String> labels = testIter.getLabels();
 
-        System.out.println("\n\nPredictions for first negative review:");
+        System.out.println("\n\nPredictions for second business article:");
         for( int i=0; i<labels.size(); i++ ){
             System.out.println("P(" + labels.get(i) + ") = " + predictionsFirstNegative.getDouble(i));
         }
@@ -153,16 +163,23 @@ public class CnnSentenceClassificationExample {
 
     private static DataSetIterator getDataSetIterator(boolean isTraining, WordVectors wordVectors, int minibatchSize,
                                                       int maxSentenceLength, Random rng ){
-        String path = FilenameUtils.concat(DATA_PATH, (isTraining ? "aclImdb/train/" : "aclImdb/test/"));
-        String positiveBaseDir = FilenameUtils.concat(path, "pos");
-        String negativeBaseDir = FilenameUtils.concat(path, "neg");
+        String path = FilenameUtils.concat(DATA_PATH, (isTraining ? "news/train/" : "news/test/"));
+        String worldBaseDir = FilenameUtils.concat(path, "1");
+        String sportsBaseDir = FilenameUtils.concat(path, "2");
+        String businessBaseDir = FilenameUtils.concat(path, "3");
+        String techBaseDir = FilenameUtils.concat(path, "4");
 
-        File filePositive = new File(positiveBaseDir);
-        File fileNegative = new File(negativeBaseDir);
+        File fileWorld = new File(worldBaseDir);
+        File fileSports = new File(sportsBaseDir);
+        File fileBusiness = new File(businessBaseDir);
+        File fileTech = new File(techBaseDir);
 
         Map<String,List<File>> reviewFilesMap = new HashMap<>();
-        reviewFilesMap.put("Positive", Arrays.asList(filePositive.listFiles()));
-        reviewFilesMap.put("Negative", Arrays.asList(fileNegative.listFiles()));
+        reviewFilesMap.put("WORLD", Arrays.asList(fileWorld.listFiles()));
+        reviewFilesMap.put("SPORTS", Arrays.asList(fileSports.listFiles()));
+        reviewFilesMap.put("BUSINESS", Arrays.asList(fileBusiness.listFiles()));
+        reviewFilesMap.put("TECH", Arrays.asList(fileTech.listFiles()));
+
 
         LabeledSentenceProvider sentenceProvider = new FileLabeledSentenceProvider(reviewFilesMap, rng);
 

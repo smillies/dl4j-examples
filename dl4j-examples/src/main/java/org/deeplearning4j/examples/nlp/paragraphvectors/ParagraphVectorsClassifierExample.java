@@ -66,7 +66,7 @@ public class ParagraphVectorsClassifierExample {
     }
 
     void makeParagraphVectors()  throws Exception {
-      ClassPathResource resource = new ClassPathResource("paravec/labeled");
+      ClassPathResource resource = new ClassPathResource("train");
 
       // build a iterator for our dataset
       iterator = new FileLabelAwareIterator.Builder()
@@ -97,7 +97,7 @@ public class ParagraphVectorsClassifierExample {
       which categories our unlabeled document falls into.
       So we'll start loading our unlabeled documents and checking them
      */
-     ClassPathResource unClassifiedResource = new ClassPathResource("paravec/unlabeled");
+     ClassPathResource unClassifiedResource = new ClassPathResource("test");
      FileLabelAwareIterator unClassifiedIterator = new FileLabelAwareIterator.Builder()
              .addSourceFolder(unClassifiedResource.getFile())
              .build();

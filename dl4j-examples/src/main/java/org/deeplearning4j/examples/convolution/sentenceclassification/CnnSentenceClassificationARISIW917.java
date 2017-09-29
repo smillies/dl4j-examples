@@ -10,7 +10,11 @@ import org.deeplearning4j.iterator.provider.FileLabeledSentenceProvider;
 import org.deeplearning4j.models.embeddings.loader.WordVectorSerializer;
 import org.deeplearning4j.models.embeddings.wordvectors.WordVectors;
 import org.deeplearning4j.nn.api.Layer;
-import org.deeplearning4j.nn.conf.*;
+import org.deeplearning4j.nn.conf.ComputationGraphConfiguration;
+import org.deeplearning4j.nn.conf.ConvolutionMode;
+import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.Updater;
+import org.deeplearning4j.nn.conf.WorkspaceMode;
 import org.deeplearning4j.nn.conf.graph.MergeVertex;
 import org.deeplearning4j.nn.conf.layers.ConvolutionLayer;
 import org.deeplearning4j.nn.conf.layers.GlobalPoolingLayer;
@@ -26,7 +30,14 @@ import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.File;
-import java.util.*;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Random;
 
 /**
  * Convolutional Neural Networks for Sentence Classification - https://arxiv.org/abs/1408.5882
@@ -35,19 +46,30 @@ import java.util.*;
  *
  * @author Alex Black
  */
-public class CnnSentenceClassificationExample {
+public class CnnSentenceClassificationARISIW917 {
+
+    // classes:
+    private static final int[] tags = {6, 19, 21, 24, 25, 33, 36, 45, 97, 98, 99, 100, 101, 103, 109, 110, 113, 114, 115};
+    private static final Properties tagNames = new Properties();
 
     /** Data URL for downloading */
     public static final String DATA_URL = "http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz";
     /** Location to save and extract the training/testing data */
     public static final String DATA_PATH = FilenameUtils.concat(System.getProperty("java.io.tmpdir"), "dl4j_w2vSentiment/");
     /** Location (local file system) for the Google News vectors. Set this manually. */
-    public static final String WORD_VECTORS_PATH = "S:/sml/GoogleNews-vectors-negative300.bin.gz";
+    /** Download manually from https://drive.google.com/file/d/0B7XkCwpI5KDYNlNUTTlSS21pQmM/edit?usp=sharing */
+//    public static final String WORD_VECTORS_PATH = "S:/sml/GoogleNews-vectors-negative300.bin.gz";
+    public static final String WORD_VECTORS_PATH = "S:/sml/aris_word2vec_model.bin";
 
     public static void main(String[] args) throws Exception {
         if(WORD_VECTORS_PATH.startsWith("/PATH/TO/YOUR/VECTORS/")){
             throw new RuntimeException("Please set the WORD_VECTORS_PATH before running this example");
         }
+
+        try(FileInputStream in = new FileInputStream(FilenameUtils.concat(DATA_PATH,"aris/labels.properties"))){{
+            System.out.println("Loading label names");
+            tagNames.load(in);
+        }};
 
         //Download and extract data
         Word2VecSentimentRNN.downloadData();
@@ -67,6 +89,7 @@ public class CnnSentenceClassificationExample {
 
         Nd4j.getMemoryManager().setAutoGcWindow(5000);
 
+        System.out.println("Setting up network configuration with number of outputs " + tags.length);
         ComputationGraphConfiguration config = new NeuralNetConfiguration.Builder()
             .trainingWorkspaceMode(WorkspaceMode.SINGLE).inferenceWorkspaceMode(WorkspaceMode.SINGLE)
             .weightInit(WeightInit.RELU)
@@ -104,7 +127,7 @@ public class CnnSentenceClassificationExample {
                 .lossFunction(LossFunctions.LossFunction.MCXENT)
                 .activation(Activation.SOFTMAX)
                 .nIn(3*cnnLayerFeatureMaps)
-                .nOut(2)    //2 classes: positive or negative
+                .nOut(tags.length)    // number of labels
                 .build(), "globalPool")
             .setOutputs("out")
             .build();
@@ -118,8 +141,10 @@ public class CnnSentenceClassificationExample {
         }
 
         //Load word vectors and get the DataSetIterators for training and testing
-        System.out.println("Loading word vectors and creating DataSetIterators");
-        WordVectors wordVectors = WordVectorSerializer.loadStaticModel(new File(WORD_VECTORS_PATH));
+        System.out.println("Loading word vectors");
+//        WordVectors wordVectors = WordVectorSerializer.loadStaticModel(new File(WORD_VECTORS_PATH));
+        WordVectors wordVectors = WordVectorSerializer.readWord2VecModel(new File(WORD_VECTORS_PATH));
+        System.out.println("Creating DataSetIterators");
         DataSetIterator trainIter = getDataSetIterator(true, wordVectors, batchSize, truncateReviewsToLength, rng);
         DataSetIterator testIter = getDataSetIterator(false, wordVectors, batchSize, truncateReviewsToLength, rng);
 
@@ -137,14 +162,14 @@ public class CnnSentenceClassificationExample {
 
 
         //After training: load a single sentence and generate a prediction
-        String pathFirstNegativeFile = FilenameUtils.concat(DATA_PATH, "aclImdb/test/neg/0_2.txt");
+        String pathFirstNegativeFile = FilenameUtils.concat(DATA_PATH, "aris/test/100/201.txt");
         String contentsFirstNegative = FileUtils.readFileToString(new File(pathFirstNegativeFile));
         INDArray featuresFirstNegative = ((CnnSentenceDataSetIterator)testIter).loadSingleSentence(contentsFirstNegative);
 
         INDArray predictionsFirstNegative = net.outputSingle(featuresFirstNegative);
         List<String> labels = testIter.getLabels();
 
-        System.out.println("\n\nPredictions for first negative review:");
+        System.out.println("\n\nPredictions for first post labelled " + tagNames.getProperty("100") + ":");
         for( int i=0; i<labels.size(); i++ ){
             System.out.println("P(" + labels.get(i) + ") = " + predictionsFirstNegative.getDouble(i));
         }
@@ -152,19 +177,21 @@ public class CnnSentenceClassificationExample {
 
 
     private static DataSetIterator getDataSetIterator(boolean isTraining, WordVectors wordVectors, int minibatchSize,
-                                                      int maxSentenceLength, Random rng ){
-        String path = FilenameUtils.concat(DATA_PATH, (isTraining ? "aclImdb/train/" : "aclImdb/test/"));
-        String positiveBaseDir = FilenameUtils.concat(path, "pos");
-        String negativeBaseDir = FilenameUtils.concat(path, "neg");
+                                                      int maxSentenceLength, Random rng ) throws IOException {
 
-        File filePositive = new File(positiveBaseDir);
-        File fileNegative = new File(negativeBaseDir);
-
+        String path = FilenameUtils.concat(DATA_PATH, (isTraining ? "aris/train/" : "aris/test/"));
         Map<String,List<File>> reviewFilesMap = new HashMap<>();
-        reviewFilesMap.put("Positive", Arrays.asList(filePositive.listFiles()));
-        reviewFilesMap.put("Negative", Arrays.asList(fileNegative.listFiles()));
+        for (int i = 0; i < tags.length; i++) {
+            String label = String.valueOf(tags[i]);
+            String baseDir = FilenameUtils.concat(path, label);
+            File file = new File(baseDir);
+            //System.out.println("Label " + tags[i] + " = " + tagNames.getProperty(label));
+            reviewFilesMap.put(tagNames.getProperty(label), Arrays.asList(file.listFiles()));
+        }
 
         LabeledSentenceProvider sentenceProvider = new FileLabeledSentenceProvider(reviewFilesMap, rng);
+        System.out.println("Created review files map with " + reviewFilesMap.size() + " entries " + (isTraining ? "for training" : "for testing"));
+        System.out.println("Using labels " + sentenceProvider.allLabels());
 
         return new CnnSentenceDataSetIterator.Builder()
             .sentenceProvider(sentenceProvider)
